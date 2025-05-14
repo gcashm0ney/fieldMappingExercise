@@ -1,0 +1,8 @@
+KPI Name,KPI Description,KPI Formula,Required Fields
+Throughput,The amount of product produced per unit of time.,Throughput = Units Produced / Time,Units Produced;Time
+Overall Equipment Effectiveness,Measures how effectively manufacturing equipment is utilized.,OEE = Availability × Performance × Quality,Availability;Performance;Quality
+Line Utilization %,Percentage of time the production line is actively running.,Line Utilization % = (Line Runtime / Line Capacity Time) × 100,Line Runtime;Line Capacity Time
+Cycle Time,The total time from when a product is ordered to when it is shipped.,Cycle Time = Shipment Date - Product Order Date,Product Order Date;Shipment Date
+Defect Rate,Percentage of produced units that are defective.,Defect Rate = (Defective Units / Total Units Produced) × 100,Defective Units;Total Units Produced
+Scrap Rate,Percentage of materials discarded during manufacturing.,Scrap Rate = (Scrapped Units / Total Units Produced) × 100,Scrapped Units;Total Units Produced
+Customer Return Rate,Percentage of sold products that are returned by customers.,Customer Return Rate = (Units Returned / Total Units Sold) × 100,Units Returned;Total Units Sold
