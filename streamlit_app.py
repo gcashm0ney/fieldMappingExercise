@@ -1,61 +1,88 @@
 import streamlit as st
 import pandas as pd
+import io
 
+# Title
+st.title("Data Model Relationship Definition")
 
-st.title("Field Mapping Exercise")
+# Step 1: Multi-file Upload with Dynamic Start Row Option
+uploaded_files = st.file_uploader("Upload multiple CSV files", type="csv", accept_multiple_files=True)
 
-# 1. Upload main data file
-uploaded_data_file = st.file_uploader("Upload client data file (CSV)", type="csv")
+if uploaded_files:
+    # Create a dictionary to store each file's data and its user-defined name
+    file_data = {}
+    
+    for file in uploaded_files:
+        file_name = st.text_input(f"Enter a name for the file '{file.name}'", value=file.name.split('.')[0])
+        start_row = st.selectbox(f"Select the row where headers start for '{file_name}'", options=range(1, 11), index=7)
+        
+        # Read the file with dynamic start row
+        df = pd.read_csv(file, skiprows=start_row-1)
+        
+        file_data[file_name] = {"df": df, "start_row": start_row}
 
-# 2. Load KPI definition CSV automatically
-# Assumes you have a 'kpis.csv' in the same directory
-@st.cache_data
-def load_kpi_definitions():
-    return pd.read_csv("kpis.csv")
+    st.success(f"{len(uploaded_files)} file(s) uploaded successfully!")
 
-kpi_df = load_kpi_definitions()
-
-# 3. Show list of KPIs with checkboxes
-st.header("Select KPIs to include:")
-selected_kpis = []
-
-for kpi in kpi_df["KPI Name"].unique():
-    if st.checkbox(kpi):
-        selected_kpis.append(kpi)
-
-# 4. Get required fields from selected KPIs
-if selected_kpis:
-    st.subheader("Step 2: Map Required Fields")
-    required_fields = kpi_df[kpi_df["KPI Name"].isin(selected_kpis)]["Required Field"].unique()
-
-    # Read uploaded client data
-    if uploaded_data_file:
-        uploaded_data_file.seek(0)
-        client_df = pd.read_csv(uploaded_data_file, skiprows=6)  # adjust if needed
-        client_columns = client_df.columns.tolist()
-
-        # Collect mappings
-        mapping = {}
-        for field in required_fields:
-            mapping[field] = st.selectbox(
-                f"Map required field '{field}' to client field:",
-                options=["-- Select --"] + client_columns,
-                key=field
-            )
-
-        # 5. Output mappings
-        if st.button("Generate Field Mapping Output"):
-            output_text = "Field Mapping Summary:\n\n"
-            for k, v in mapping.items():
-                if v and v != "-- Select --":
-                    output_text += f'"{k}" → "{v}"\n'
-                else:
-                    output_text += f'"{k}" → [NOT MAPPED]\n'
-
-            # Display and offer download
-            st.text_area("Preview of Field Mappings", output_text, height=200)
-
-            # Downloadable text file
-            st.download_button("Download Mapping as .txt", data=output_text, file_name="field_mapping.txt")
 else:
-    st.info("Select at least one KPI to begin field mapping.")
+    st.stop()
+
+# Step 2: Select Key Fields and Define Relationships
+st.header("Define Relationships Between Tables")
+
+# Create a list to store user-defined relationships
+relationships = []
+
+# Loop over each file to display their columns for key field selection
+for file_name, data in file_data.items():
+    st.subheader(f"File: {file_name}")
+    file_columns = data["df"].columns.tolist()
+    
+    # Display key fields dropdown
+    key_field = st.selectbox(f"Select key field for '{file_name}' (e.g., ProductID, CustomerID)", options=["-- Select --"] + file_columns, key=f"key_field_{file_name}")
+    
+    if key_field != "-- Select --":
+        # List other files to match against
+        other_files = [f for f in file_data if f != file_name]  # Get other files to match against
+        
+        # Display relationship type dropdown
+        relationship_type = st.selectbox(f"Select relationship type for '{key_field}'", options=["One-to-Many", "Many-to-One", "One-to-One", "Many-to-Many"], key=f"relationship_{file_name}_{key_field}")
+        
+        # Let the user choose the related field in another file
+        related_file = st.selectbox(f"Select related file for '{key_field}'", options=other_files, key=f"related_file_{file_name}_{key_field}")
+        related_columns = file_data[related_file]["df"].columns.tolist()
+        
+        related_key = st.selectbox(f"Select key field in '{related_file}' that matches '{key_field}'", options=related_columns, key=f"related_key_{file_name}_{key_field}")
+        
+        # Store the relationship if all details are provided
+        if relationship_type and related_key:
+            relationships.append({
+                "Source File": file_name,
+                "Source Field": key_field,
+                "Relationship Type": relationship_type,
+                "Target File": related_file,
+                "Target Field": related_key
+            })
+
+# Step 3: Display and Confirm the Relationships
+st.header("Confirmed Relationships")
+
+if relationships:
+    relationships_df = pd.DataFrame(relationships)
+    st.dataframe(relationships_df)
+
+    # Step 4: Download Mapping Summary
+    if st.button("Generate Mapping Summary"):
+        output = io.StringIO()
+        output.write("Confirmed Field Relationships:\n")
+        
+        for _, row in relationships_df.iterrows():
+            output.write(f"Source File: {row['Source File']} - Field: {row['Source Field']} -> Mapped File: {row['Target File']} - Field: {row['Target Field']} | Relationship Type: {row['Relationship Type']}\n")
+        
+        st.download_button(
+            label="Download Relationship Summary as TXT",
+            data=output.getvalue(),
+            file_name="data_model_relationships.txt",
+            mime="text/plain"
+        )
+else:
+    st.warning("No relationships confirmed yet.")
