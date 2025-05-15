@@ -1,2 +1,6 @@
 streamlit
 graphviz
+os
+io
+re
+hashlib
