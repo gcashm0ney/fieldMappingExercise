@@ -43,6 +43,11 @@ st.markdown("Use the '+' button to define relationships between key fields of ea
 if "relationships" not in st.session_state:
     st.session_state.relationships = []
 
+# Initialize removal index BEFORE loop
+if "remove_rel_idx" not in st.session_state:
+    st.session_state.remove_rel_idx = None
+
+# Add new relationship
 if st.button("+ Add Relationship"):
     st.session_state.relationships.append({
         "Source File": None,
@@ -52,19 +57,31 @@ if st.button("+ Add Relationship"):
         "Target Field": None
     })
 
+# Loop through relationships
 for idx, rel in enumerate(st.session_state.relationships):
     with st.expander(f"Relationship #{idx+1}", expanded=True):
         col1, col2 = st.columns(2)
 
         with col1:
-            source_file = st.selectbox("Source Table", options=list(file_data.keys()), key=f"src_file_{idx}")
-            source_field = st.selectbox("Source Field", options=sorted(file_data[source_file]["df"].columns.tolist(), key=str.lower), key=f"src_field_{idx}")
-        
+            source_file = st.selectbox("Source Table", options=["-- Select Table --"] + list(file_data.keys()), key=f"src_file_{idx}")
+            if source_file and source_file != "-- Select Table --":
+                source_fields = sorted(file_data[source_file]["df"].columns.tolist(), key=str.lower)
+            else:
+                source_fields = ["-- Select Field --"]
+
+            source_field = st.selectbox("Source Field", options=["-- Select Field --"] + source_fields, key=f"src_field_{idx}")
+
         with col2:
-            target_file = st.selectbox("Target Table", options=[f for f in file_data if f != source_file], key=f"tgt_file_{idx}")
-            target_field = st.selectbox("Target Field", options=sorted(file_data[target_file]["df"].columns.tolist(), key=str.lower), key=f"tgt_field_{idx}")
+            target_file = st.selectbox("Target Table", options=["-- Select Table --"] + list(file_data.keys()), key=f"tgt_file_{idx}")
+            if target_file and target_file != "-- Select Table --":
+                target_fields = sorted(file_data[target_file]["df"].columns.tolist(), key=str.lower)
+            else:
+                target_fields = ["-- Select Field --"]
+
+            target_field = st.selectbox("Target Field", options=["-- Select Field --"] + target_fields, key=f"tgt_field_{idx}")
             rel_type = st.selectbox("Relationship Type", ["One-to-Many", "Many-to-One", "One-to-One", "Many-to-Many"], key=f"rel_type_{idx}")
 
+        # Save updated values
         st.session_state.relationships[idx] = {
             "Source File": source_file,
             "Source Field": source_field,
@@ -72,6 +89,18 @@ for idx, rel in enumerate(st.session_state.relationships):
             "Target File": target_file,
             "Target Field": target_field
         }
+
+        # Add remove button
+        if st.button(f"❌ Remove Relationship #{idx+1}", key=f"remove_{idx}"):
+            st.session_state.remove_rel_idx = idx
+            st.rerun()
+
+# Remove selected relationship outside the loop
+if st.session_state.remove_rel_idx is not None:
+    del st.session_state.relationships[st.session_state.remove_rel_idx]
+    st.session_state.remove_rel_idx = None
+    st.rerun()
+
 
 # Step 3: Validate connection coverage
 st.subheader("Step 3: Connectivity Check")
@@ -123,64 +152,78 @@ kpi_options = kpis_df['KPI Name'].tolist()
 # Let user select KPIs
 selected_kpis = st.multiselect("Select KPIs to include in the analysis", options=kpi_options)
 
+# Track if any required field across all KPIs is unmapped
+global_unmapped = False
+
 # Step 7: Show Selected KPIs and Their Required Fields
 if selected_kpis:
     selected_kpis_df = kpis_df[kpis_df['KPI Name'].isin(selected_kpis)]
 
     st.write("### Selected KPIs and Their Required Fields")
 
-    # Display KPI Name, Description, Formula, and Required Fields
     for _, row in selected_kpis_df.iterrows():
-        st.subheader(f"{row['KPI Name']}: {row['KPI Description']}")
-        st.write(f"Formula: {row['KPI Formula']}")
+        kpi_name = row['KPI Name']
+        required_fields = [field.strip() for field in row['Required Fields'].split(';') if field.strip()]
 
-        # List of required fields (split by semicolons)
-        required_fields = row['Required Fields'].split(";")
-        for field in required_fields:
-            st.write(f"- {field.strip()}")
-else:
-    st.write("Select KPIs to proceed.")
+        # Check if this KPI has any unmapped fields
+        any_unmapped = False
+        for req_field in required_fields:
+            table_key = f"table_choice_{kpi_name}_{req_field}"
+            field_key = f"field_choice_{kpi_name}_{req_field}"
 
-# Step 8: Field Mapping for Selected KPIs
-if selected_kpis:
-    st.header("Map Required Fields to Uploaded Data Fields")
+            table_choice = st.session_state.get(table_key, "-- Select Table --")
+            field_choice = st.session_state.get(field_key, "-- Select Field --")
 
-    # Loop through selected KPIs
-    for _, row in selected_kpis_df.iterrows():
-        required_fields = row['Required Fields'].split(";")
+            if table_choice == "-- Select Table --" or field_choice == "-- Select Field --":
+                any_unmapped = True
+                global_unmapped = True
+                break
 
-        # For each required field, allow users to map it to uploaded data fields
-        for field in required_fields:
-            st.subheader(f"Mapping for Required Field: {field.strip()}")
+        with st.expander(f"🔹 {kpi_name}", expanded=any_unmapped):
+            col1, col2 = st.columns([2, 3])
 
-            # Select the table first
-            table_name = st.selectbox(
-                f"Select the table for '{field.strip()}'",
-                options=["-- Select Table --"] + list(file_data.keys()),
-                key=f"table_{field.strip()}"
-            )
+            with col1:
+                st.markdown(f"**Description:** {row['KPI Description']}")
+                st.markdown(f"**Formula:** `{row['KPI Formula']}`")
+                st.markdown(f"**Required Fields:** {', '.join(required_fields)}")
 
-            # If a table is selected, show its columns for field mapping
-            if table_name != "-- Select Table --":
-                file_columns = sorted(file_data[table_name]["df"].columns.tolist())  # Sort columns alphabetically
-                field_mapping = st.selectbox(
-                    f"Select the field for '{field.strip()}' from '{table_name}'",
-                    options=["-- Select --"] + file_columns,
-                    key=f"{table_name}_{field.strip()}"
-                )
+            with col2:
+                st.markdown("**Field Mapping**")
+                kpi_unmapped_found = False
 
-                # Flag if unmapped
-                if field_mapping == "-- Select --":
-                    st.warning(f"Field '{field.strip()}' is unmapped in '{table_name}'! Mark as 'Calculation Required'.")
-                else:
-                    st.write(f"Field '{field.strip()}' is mapped to '{field_mapping}' in '{table_name}'.")
+                for req_field in required_fields:
+                    table_choice = st.selectbox(
+                        f"Select table for '{req_field}'",
+                        options=["-- Select Table --"] + list(file_data.keys()),
+                        key=f"table_choice_{kpi_name}_{req_field}"
+                    )
+
+                    if table_choice != "-- Select Table --":
+                        column_options = sorted(file_data[table_choice]["df"].columns.tolist())
+                        field_choice = st.selectbox(
+                            f"Select field in '{table_choice}' for '{req_field}'",
+                            options=["-- Select Field --"] + column_options,
+                            key=f"field_choice_{kpi_name}_{req_field}"
+                        )
+                        if field_choice == "-- Select Field --":
+                            kpi_unmapped_found = True
+                    else:
+                        kpi_unmapped_found = True
+
+                if kpi_unmapped_found:
+                    st.warning("⚠️ Some required fields have not been mapped.")
+
+# Show global warning if any field for any KPI is unmapped
+if global_unmapped:
+    st.warning("⚠️ Please complete all required field mappings before proceeding.")
+
+
 
 # Step 9: Generate a Mapping Summary for KPIs
 if st.button("Generate Mapping Summary for KPIs"):
     output = io.StringIO()
     output.write("Field Mappings Summary for KPIs:\n")
 
-    # Write mappings for each KPI and the selected fields
     for _, row in selected_kpis_df.iterrows():
         required_fields = row['Required Fields'].split(";")
 
